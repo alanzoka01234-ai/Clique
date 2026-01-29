@@ -1,17 +1,14 @@
-
 export interface VideoMetadata {
   id: string;
   user_id: string;
-  title: string;
-  description: string | null;
-  file_path: string;
+  titulo: string;
+  descricao: string | null;
+  url_video: string;
   thumbnail_url: string | null;
   created_at: string;
   views: number;
   likes_count: number;
-  is_favorite: boolean;
-  is_public: boolean;
-  user_email?: string; // Opcional, para exibir autor
+  publico: boolean;
 }
 
 export interface AuthState {

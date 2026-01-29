@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { VideoMetadata } from '../types';
@@ -42,13 +41,13 @@ const VideoGrid: React.FC<VideoGridProps> = ({ userId, mode, searchQuery, refres
       if (mode === 'personal' && userId) {
         query = query.eq('user_id', userId);
       } else if (mode === 'public') {
-        query = query.eq('is_public', true);
+        query = query.eq('publico', true);
       } else if (mode === 'profile' && userId) {
-        query = query.eq('user_id', userId).eq('is_public', true);
+        query = query.eq('user_id', userId).eq('publico', true);
       }
 
       if (searchQuery) {
-        query = query.ilike('title', `%${searchQuery}%`);
+        query = query.ilike('titulo', `%${searchQuery}%`);
       }
 
       const orderCol = sortBy === 'recent' ? 'created_at' : (sortBy === 'views' ? 'views' : 'likes_count');
@@ -115,7 +114,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ userId, mode, searchQuery, refres
                 {video.thumbnail_url ? (
                   <img 
                     src={video.thumbnail_url} 
-                    alt={video.title}
+                    alt={video.titulo}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                   />
                 ) : (
@@ -131,7 +130,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ userId, mode, searchQuery, refres
                 </div>
 
                 <div className="absolute top-3 right-3 flex gap-2">
-                  {video.is_public ? (
+                  {video.publico ? (
                     <div className="p-1.5 bg-emerald-500/80 backdrop-blur-md text-white rounded-lg shadow-lg" title="Público">
                       <Globe className="w-3.5 h-3.5" />
                     </div>
@@ -145,7 +144,7 @@ const VideoGrid: React.FC<VideoGridProps> = ({ userId, mode, searchQuery, refres
 
               <div className="p-5">
                 <h3 className="font-bold text-zinc-100 line-clamp-1 group-hover:text-indigo-400 transition-colors text-lg">
-                  {video.title}
+                  {video.titulo}
                 </h3>
                 
                 <div className="flex items-center justify-between mt-4">

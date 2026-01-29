@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { supabase, BUCKET_NAME } from '../lib/supabase';
 import { 
@@ -42,10 +41,10 @@ const UploadModal: React.FC<UploadModalProps> = ({ userId, onClose, onComplete }
 
       const { error: dbError } = await supabase.from('videos').insert({
         user_id: userId,
-        title: title || 'Sem título',
-        description,
-        file_path: filePath,
-        is_public: isPublic,
+        titulo: title || 'Sem título',
+        descricao: description,
+        url_video: filePath,
+        publico: isPublic,
         thumbnail_url: `https://picsum.photos/seed/${filePath}/800/450`,
         views: 0,
         likes_count: 0

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { supabase, getFileUrl } from '../lib/supabase';
 import { VideoMetadata } from '../types';
@@ -15,7 +14,8 @@ import {
   Lock,
   ThumbsUp,
   Info,
-  User as UserIcon
+  User as UserIcon,
+  Loader2
 } from 'lucide-react';
 
 interface VideoPlayerViewProps {
@@ -53,9 +53,9 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
 
       if (data && !error) {
         setVideo(data);
-        setEditTitle(data.title);
-        setEditDesc(data.description || '');
-        setEditPublic(data.is_public);
+        setEditTitle(data.titulo);
+        setEditDesc(data.descricao || '');
+        setEditPublic(data.publico);
       }
     } finally {
       setLoading(false);
@@ -68,7 +68,7 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
       .select('id')
       .eq('video_id', videoId)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
     setIsLiked(!!data);
   };
 
@@ -80,7 +80,7 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
 
   const handleToggleLike = async () => {
     if (!userId) {
-      alert("Você precisa estar logado para curtir vídeos!");
+      alert("Você precisa entrar para curtir vídeos!");
       return;
     }
 
@@ -103,34 +103,50 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
     const { error } = await supabase
       .from('videos')
       .update({ 
-        title: editTitle, 
-        description: editDesc,
-        is_public: editPublic
+        titulo: editTitle, 
+        descricao: editDesc,
+        publico: editPublic
       })
       .eq('id', videoId);
     
     if (!error) {
-      setVideo(prev => prev ? { ...prev, title: editTitle, description: editDesc, is_public: editPublic } : null);
+      setVideo(prev => prev ? { ...prev, titulo: editTitle, descricao: editDesc, publico: editPublic } : null);
       setEditing(false);
       onUpdate();
     }
     setSaving(false);
   };
 
+  const handleDeleteVideo = async () => {
+    if (!video || !window.confirm('Tem certeza que deseja excluir este vídeo para sempre?')) return;
+    
+    setSaving(true);
+    try {
+      // 1. Deletar do storage
+      await supabase.storage.from('videos').remove([video.url_video]);
+      // 2. Deletar do banco
+      const { error } = await supabase.from('videos').delete().eq('id', videoId);
+      if (error) throw error;
+      onDelete();
+    } catch (err: any) {
+      alert(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (loading) return (
-    <div className="animate-pulse space-y-8 max-w-6xl mx-auto">
-      <div className="h-10 w-24 bg-zinc-900 rounded-xl"></div>
-      <div className="aspect-video bg-zinc-900 rounded-[2.5rem]"></div>
-      <div className="h-32 bg-zinc-900 rounded-[2.5rem]"></div>
+    <div className="flex flex-col items-center justify-center h-96">
+      <Loader2 className="w-12 h-12 text-indigo-500 animate-spin" />
     </div>
   );
 
-  if (!video) return <div className="text-center py-20 text-zinc-500">Vídeo não encontrado.</div>;
+  if (!video) return <div className="text-center py-20 text-zinc-500">Vídeo não encontrado ou acesso negado.</div>;
 
   const isOwner = userId === video.user_id;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20">
+    <div className="max-w-6xl mx-auto space-y-8 pb-20 px-4">
       <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors group">
         <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
         Voltar
@@ -139,33 +155,45 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
           <div className="aspect-video bg-black rounded-[2.5rem] overflow-hidden shadow-2xl ring-1 ring-zinc-800">
-            <video src={getFileUrl(video.file_path)} controls autoPlay className="w-full h-full" />
+            <video 
+              src={getFileUrl(video.url_video)} 
+              controls 
+              autoPlay 
+              className="w-full h-full"
+              poster={video.thumbnail_url || undefined}
+            />
           </div>
 
           <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-[2.5rem] p-8">
             {editing ? (
               <div className="space-y-6">
-                <input 
-                  type="text" 
-                  value={editTitle}
-                  onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 text-2xl font-bold rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500/50"
-                />
-                <textarea 
-                  value={editDesc}
-                  onChange={(e) => setEditDesc(e.target.value)}
-                  rows={4}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl p-4 outline-none"
-                  placeholder="Descrição do vídeo..."
-                />
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase">Título</label>
+                  <input 
+                    type="text" 
+                    value={editTitle}
+                    onChange={(e) => setEditTitle(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 text-2xl font-bold rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-500 uppercase">Descrição</label>
+                  <textarea 
+                    value={editDesc}
+                    onChange={(e) => setEditDesc(e.target.value)}
+                    rows={4}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl p-4 outline-none"
+                    placeholder="Descrição do vídeo..."
+                  />
+                </div>
                 <div className="flex items-center justify-between bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
                   <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-lg ${editPublic ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-800 text-zinc-500'}`}>
                       {editPublic ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
                     </div>
                     <div>
-                      <p className="font-bold text-sm">Visibilidade {editPublic ? 'Pública' : 'Privada'}</p>
-                      <p className="text-xs text-zinc-500">{editPublic ? 'Qualquer um pode assistir' : 'Só você pode ver'}</p>
+                      <p className="font-bold text-sm">Privacidade {editPublic ? 'Pública' : 'Privada'}</p>
+                      <p className="text-xs text-zinc-500">{editPublic ? 'Todos podem assistir' : 'Apenas você pode ver'}</p>
                     </div>
                   </div>
                   <button 
@@ -178,7 +206,7 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
                 <div className="flex justify-end gap-3">
                   <button onClick={() => setEditing(false)} className="px-6 py-2 text-zinc-400 font-medium">Cancelar</button>
                   <button onClick={handleUpdate} disabled={saving} className="bg-indigo-600 hover:bg-indigo-500 px-8 py-2 rounded-xl font-bold flex items-center gap-2">
-                    {saving ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />} Salvar
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} Salvar
                   </button>
                 </div>
               </div>
@@ -186,19 +214,19 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
               <div className="space-y-8">
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
                   <div>
-                    <h2 className="text-3xl font-black text-white leading-tight">{video.title}</h2>
+                    <h2 className="text-3xl font-black text-white leading-tight">{video.titulo}</h2>
                     <div className="flex flex-wrap items-center gap-4 mt-4 text-zinc-500 text-sm">
                       <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1.5 rounded-full border border-zinc-800">
                         <Eye className="w-4 h-4" />
-                        <span className="font-bold">{video.views}</span>
+                        <span className="font-bold">{video.views} visualizações</span>
                       </div>
                       <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1.5 rounded-full border border-zinc-800">
                         <Calendar className="w-4 h-4" />
                         <span>{new Date(video.created_at).toLocaleDateString()}</span>
                       </div>
-                      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border ${video.is_public ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
-                        {video.is_public ? <Globe className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                        <span className="font-bold text-xs uppercase tracking-tighter">{video.is_public ? 'Público' : 'Privado'}</span>
+                      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border ${video.publico ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                        {video.publico ? <Globe className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        <span className="font-bold text-xs uppercase tracking-tighter">{video.publico ? 'Público' : 'Privado'}</span>
                       </div>
                     </div>
                   </div>
@@ -211,7 +239,13 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
                       <ThumbsUp className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
                       {video.likes_count}
                     </button>
-                    <button className="p-2.5 bg-zinc-800 border border-zinc-700 rounded-full text-zinc-400 hover:text-white transition-all">
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(window.location.href);
+                        alert("Link copiado!");
+                      }}
+                      className="p-2.5 bg-zinc-800 border border-zinc-700 rounded-full text-zinc-400 hover:text-white transition-all"
+                    >
                       <Share2 className="w-5 h-5" />
                     </button>
                   </div>
@@ -227,11 +261,11 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
                      </div>
                      <div>
                        <p className="font-bold text-white group-hover:text-indigo-400 transition-colors">Criador do Vídeo</p>
-                       <p className="text-xs text-zinc-500 uppercase tracking-widest">Ver todos os vídeos públicos</p>
+                       <p className="text-xs text-zinc-500 uppercase tracking-widest">Ver perfil público</p>
                      </div>
                    </div>
                   <p className="text-zinc-300 leading-relaxed text-lg whitespace-pre-wrap">
-                    {video.description || <span className="text-zinc-600 italic">Sem descrição.</span>}
+                    {video.descricao || <span className="text-zinc-600 italic">Sem descrição.</span>}
                   </p>
                 </div>
               </div>
@@ -243,29 +277,34 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBa
           {isOwner && (
             <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] p-6 space-y-3">
               <h3 className="font-bold flex items-center gap-2 text-zinc-400 mb-2">
-                <Info className="w-4 h-4" /> Gerenciamento
+                <Info className="w-4 h-4" /> Gerenciar Vídeo
               </h3>
               {!editing && (
                 <button onClick={() => setEditing(true)} className="w-full flex items-center gap-3 px-4 py-3 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-800 rounded-2xl text-zinc-300 font-bold transition-all">
-                  <Edit3 className="w-5 h-5 text-indigo-400" /> Editar Detalhes
+                  <Edit3 className="w-5 h-5 text-indigo-400" /> Editar Título/Privacidade
                 </button>
               )}
-              <button onClick={() => { if(window.confirm('Excluir vídeo permanentemente?')) onDelete(); }} className="w-full flex items-center gap-3 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl text-red-400 font-bold transition-all">
-                <Trash2 className="w-5 h-5" /> Excluir Vídeo
+              <button 
+                onClick={handleDeleteVideo} 
+                disabled={saving}
+                className="w-full flex items-center gap-3 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl text-red-400 font-bold transition-all"
+              >
+                <Trash2 className="w-5 h-5" /> Excluir Permanentemente
               </button>
             </div>
           )}
           
           <div className="bg-indigo-600/5 border border-indigo-500/10 rounded-[2rem] p-6">
-            <h3 className="font-bold text-indigo-400 mb-4 flex items-center gap-2">Estatísticas</h3>
+            <h3 className="font-bold text-indigo-400 mb-4 flex items-center gap-2">Engajamento</h3>
             <div className="space-y-4">
               <div className="flex justify-between items-center text-sm">
                 <span className="text-zinc-500">Popularidade</span>
                 <span className="text-white font-bold">{video.likes_count} Curtidas</span>
               </div>
               <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-500" style={{ width: `${Math.min((Number(video.likes_count) / 100) * 100, 100)}%` }} />
+                <div className="h-full bg-indigo-500" style={{ width: `${Math.min((Number(video.likes_count) / 50) * 100, 100)}%` }} />
               </div>
+              <p className="text-[10px] text-zinc-600 uppercase tracking-widest text-center mt-2">Dados processados em tempo real</p>
             </div>
           </div>
         </div>
