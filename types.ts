@@ -8,7 +8,10 @@ export interface VideoMetadata {
   thumbnail_url: string | null;
   created_at: string;
   views: number;
+  likes_count: number;
   is_favorite: boolean;
+  is_public: boolean;
+  user_email?: string; // Opcional, para exibir autor
 }
 
 export interface AuthState {
@@ -16,3 +19,5 @@ export interface AuthState {
   session: any | null;
   loading: boolean;
 }
+
+export type AppView = 'explore' | 'my-library' | 'player' | 'profile';

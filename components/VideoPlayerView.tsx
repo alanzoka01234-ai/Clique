@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { supabase, getFileUrl, BUCKET_NAME } from '../lib/supabase';
+import { supabase, getFileUrl } from '../lib/supabase';
 import { VideoMetadata } from '../types';
 import { 
   ArrowLeft, 
@@ -9,32 +9,39 @@ import {
   Eye, 
   Calendar, 
   Save, 
-  X,
-  Heart,
   Share2,
-  Check
+  Check,
+  Globe,
+  Lock,
+  ThumbsUp,
+  Info,
+  User as UserIcon
 } from 'lucide-react';
 
 interface VideoPlayerViewProps {
   videoId: string;
+  userId?: string;
   onBack: () => void;
   onDelete: () => void;
   onUpdate: () => void;
+  onOpenProfile: (userId: string) => void;
 }
 
-const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, onBack, onDelete, onUpdate }) => {
+const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, userId, onBack, onDelete, onUpdate, onOpenProfile }) => {
   const [video, setVideo] = useState<VideoMetadata | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [editTitle, setEditTitle] = useState('');
   const [editDesc, setEditDesc] = useState('');
-  const [isFavorite, setIsFavorite] = useState(false);
+  const [editPublic, setEditPublic] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchVideoDetails();
     incrementViews();
-  }, [videoId]);
+    if (userId) checkLikeStatus();
+  }, [videoId, userId]);
 
   const fetchVideoDetails = async () => {
     try {
@@ -48,22 +55,46 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, onBack, onDe
         setVideo(data);
         setEditTitle(data.title);
         setEditDesc(data.description || '');
-        setIsFavorite(data.is_favorite);
+        setEditPublic(data.is_public);
       }
-    } catch (err) {
-      console.error("Error fetching video details:", err);
     } finally {
       setLoading(false);
     }
   };
 
+  const checkLikeStatus = async () => {
+    const { data } = await supabase
+      .from('video_likes')
+      .select('id')
+      .eq('video_id', videoId)
+      .eq('user_id', userId)
+      .single();
+    setIsLiked(!!data);
+  };
+
   const incrementViews = async () => {
     try {
-      // Chama a função RPC definida no SQL
       await supabase.rpc('increment_video_views', { video_id: videoId });
-    } catch (err) {
-      // Falha silenciosa se o RPC ainda não existir no banco
-      console.warn("View increment failed. Did you run the SQL migration?");
+    } catch (err) {}
+  };
+
+  const handleToggleLike = async () => {
+    if (!userId) {
+      alert("Você precisa estar logado para curtir vídeos!");
+      return;
+    }
+
+    const { data, error } = await supabase.rpc('toggle_video_like', { 
+      target_video_id: videoId, 
+      target_user_id: userId 
+    });
+
+    if (!error) {
+      setIsLiked(data.liked);
+      setVideo(prev => prev ? { 
+        ...prev, 
+        likes_count: data.liked ? Number(prev.likes_count) + 1 : Number(prev.likes_count) - 1 
+      } : null);
     }
   };
 
@@ -74,143 +105,133 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, onBack, onDe
       .update({ 
         title: editTitle, 
         description: editDesc,
-        is_favorite: isFavorite
+        is_public: editPublic
       })
       .eq('id', videoId);
     
     if (!error) {
-      setVideo(prev => prev ? { ...prev, title: editTitle, description: editDesc, is_favorite: isFavorite } : null);
+      setVideo(prev => prev ? { ...prev, title: editTitle, description: editDesc, is_public: editPublic } : null);
       setEditing(false);
       onUpdate();
     }
     setSaving(false);
   };
 
-  const handleDelete = async () => {
-    if (!video || !window.confirm('Are you sure you want to delete this video? This cannot be undone.')) return;
-
-    try {
-      // Delete from Storage
-      await supabase.storage.from(BUCKET_NAME).remove([video.file_path]);
-
-      // Delete from Database
-      const { error } = await supabase.from('videos').delete().eq('id', videoId);
-
-      if (!error) {
-        onDelete();
-      }
-    } catch (err) {
-      console.error("Error deleting video:", err);
-      alert("Failed to delete video. Please try again.");
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex flex-col gap-6 animate-pulse">
-        <div className="aspect-video bg-zinc-900 rounded-3xl"></div>
-        <div className="h-10 bg-zinc-900 rounded w-1/3"></div>
-        <div className="h-20 bg-zinc-900 rounded"></div>
-      </div>
-    );
-  }
-
-  if (!video) return (
-    <div className="text-center py-20">
-      <p className="text-zinc-500">Video not found or access denied.</p>
-      <button onClick={onBack} className="mt-4 text-indigo-400">Go Back</button>
+  if (loading) return (
+    <div className="animate-pulse space-y-8 max-w-6xl mx-auto">
+      <div className="h-10 w-24 bg-zinc-900 rounded-xl"></div>
+      <div className="aspect-video bg-zinc-900 rounded-[2.5rem]"></div>
+      <div className="h-32 bg-zinc-900 rounded-[2.5rem]"></div>
     </div>
   );
 
-  const videoUrl = getFileUrl(video.file_path);
+  if (!video) return <div className="text-center py-20 text-zinc-500">Vídeo não encontrado.</div>;
+
+  const isOwner = userId === video.user_id;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 pb-20">
-      <button 
-        onClick={onBack}
-        className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4 group"
-      >
+    <div className="max-w-6xl mx-auto space-y-8 pb-20">
+      <button onClick={onBack} className="flex items-center gap-2 text-zinc-400 hover:text-white transition-colors group">
         <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
-        Back to Library
+        Voltar
       </button>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-6">
-          <div className="aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl ring-1 ring-zinc-800">
-            <video 
-              src={videoUrl} 
-              controls 
-              autoPlay
-              className="w-full h-full"
-              poster={video.thumbnail_url || undefined}
-            />
+          <div className="aspect-video bg-black rounded-[2.5rem] overflow-hidden shadow-2xl ring-1 ring-zinc-800">
+            <video src={getFileUrl(video.file_path)} controls autoPlay className="w-full h-full" />
           </div>
 
-          <div className="bg-zinc-900/50 border border-zinc-800 rounded-3xl p-6 md:p-8">
+          <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-[2.5rem] p-8">
             {editing ? (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <input 
                   type="text" 
                   value={editTitle}
                   onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 text-2xl font-bold rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500/50 outline-none"
+                  className="w-full bg-zinc-950 border border-zinc-800 text-2xl font-bold rounded-2xl p-4 outline-none focus:ring-2 focus:ring-indigo-500/50"
                 />
                 <textarea 
                   value={editDesc}
                   onChange={(e) => setEditDesc(e.target.value)}
                   rows={4}
-                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl py-3 px-4 focus:ring-2 focus:ring-indigo-500/50 outline-none"
-                  placeholder="Video description..."
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-2xl p-4 outline-none"
+                  placeholder="Descrição do vídeo..."
                 />
-                <div className="flex justify-end gap-3 pt-2">
+                <div className="flex items-center justify-between bg-zinc-950 p-4 rounded-2xl border border-zinc-800">
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2 rounded-lg ${editPublic ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-800 text-zinc-500'}`}>
+                      {editPublic ? <Globe className="w-5 h-5" /> : <Lock className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <p className="font-bold text-sm">Visibilidade {editPublic ? 'Pública' : 'Privada'}</p>
+                      <p className="text-xs text-zinc-500">{editPublic ? 'Qualquer um pode assistir' : 'Só você pode ver'}</p>
+                    </div>
+                  </div>
                   <button 
-                    onClick={() => { setEditing(false); setEditTitle(video.title); setEditDesc(video.description || ''); }}
-                    className="px-4 py-2 text-zinc-400 hover:text-white font-medium"
+                    onClick={() => setEditPublic(!editPublic)}
+                    className={`relative w-12 h-6 rounded-full transition-colors ${editPublic ? 'bg-indigo-600' : 'bg-zinc-700'}`}
                   >
-                    Cancel
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${editPublic ? 'left-7' : 'left-1'}`} />
                   </button>
-                  <button 
-                    onClick={handleUpdate}
-                    disabled={saving}
-                    className="bg-indigo-600 hover:bg-indigo-500 px-6 py-2 rounded-xl font-bold transition-all flex items-center gap-2"
-                  >
-                    {saving ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
-                    Save Changes
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button onClick={() => setEditing(false)} className="px-6 py-2 text-zinc-400 font-medium">Cancelar</button>
+                  <button onClick={handleUpdate} disabled={saving} className="bg-indigo-600 hover:bg-indigo-500 px-8 py-2 rounded-xl font-bold flex items-center gap-2">
+                    {saving ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />} Salvar
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+              <div className="space-y-8">
+                <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
                   <div>
-                    <h2 className="text-3xl font-bold text-white mb-2">{video.title}</h2>
-                    <div className="flex items-center gap-4 text-zinc-500 text-sm">
-                      <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1 rounded-full">
+                    <h2 className="text-3xl font-black text-white leading-tight">{video.title}</h2>
+                    <div className="flex flex-wrap items-center gap-4 mt-4 text-zinc-500 text-sm">
+                      <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1.5 rounded-full border border-zinc-800">
                         <Eye className="w-4 h-4" />
-                        <span>{video.views} views</span>
+                        <span className="font-bold">{video.views}</span>
                       </div>
-                      <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1 rounded-full">
+                      <div className="flex items-center gap-1.5 bg-zinc-800/50 px-3 py-1.5 rounded-full border border-zinc-800">
                         <Calendar className="w-4 h-4" />
                         <span>{new Date(video.created_at).toLocaleDateString()}</span>
                       </div>
+                      <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border ${video.is_public ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20' : 'bg-zinc-800 text-zinc-400 border-zinc-700'}`}>
+                        {video.is_public ? <Globe className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+                        <span className="font-bold text-xs uppercase tracking-tighter">{video.is_public ? 'Público' : 'Privado'}</span>
+                      </div>
                     </div>
                   </div>
+
                   <div className="flex items-center gap-2">
                     <button 
-                      onClick={() => { setIsFavorite(!isFavorite); setEditing(true); }}
-                      className={`p-3 rounded-full transition-all ${isFavorite ? 'bg-red-500/10 text-red-500' : 'bg-zinc-800 text-zinc-400 hover:text-white'}`}
+                      onClick={handleToggleLike}
+                      className={`flex items-center gap-2 px-5 py-2.5 rounded-full font-bold transition-all ${isLiked ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'bg-zinc-800 text-zinc-400 hover:text-white border border-zinc-700'}`}
                     >
-                      <Heart className={`w-5 h-5 ${isFavorite ? 'fill-current' : ''}`} />
+                      <ThumbsUp className={`w-5 h-5 ${isLiked ? 'fill-current' : ''}`} />
+                      {video.likes_count}
                     </button>
-                    <button className="p-3 bg-zinc-800 rounded-full text-zinc-400 hover:text-white transition-all">
+                    <button className="p-2.5 bg-zinc-800 border border-zinc-700 rounded-full text-zinc-400 hover:text-white transition-all">
                       <Share2 className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
 
-                <div className="pt-6 border-t border-zinc-800">
-                  <p className="text-zinc-300 leading-relaxed whitespace-pre-wrap">
-                    {video.description || <span className="text-zinc-600 italic">No description provided.</span>}
+                <div className="pt-8 border-t border-zinc-800/50">
+                   <div 
+                     onClick={() => onOpenProfile(video.user_id)}
+                     className="flex items-center gap-4 mb-6 cursor-pointer group w-fit"
+                   >
+                     <div className="w-12 h-12 bg-indigo-600 rounded-full flex items-center justify-center text-xl font-bold group-hover:bg-indigo-500 transition-colors">
+                       <UserIcon className="w-6 h-6" />
+                     </div>
+                     <div>
+                       <p className="font-bold text-white group-hover:text-indigo-400 transition-colors">Criador do Vídeo</p>
+                       <p className="text-xs text-zinc-500 uppercase tracking-widest">Ver todos os vídeos públicos</p>
+                     </div>
+                   </div>
+                  <p className="text-zinc-300 leading-relaxed text-lg whitespace-pre-wrap">
+                    {video.description || <span className="text-zinc-600 italic">Sem descrição.</span>}
                   </p>
                 </div>
               </div>
@@ -219,43 +240,31 @@ const VideoPlayerView: React.FC<VideoPlayerViewProps> = ({ videoId, onBack, onDe
         </div>
 
         <div className="space-y-6">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-3xl p-6">
-            <h3 className="font-bold mb-4 flex items-center gap-2">
-              Management
-            </h3>
-            <div className="space-y-2">
+          {isOwner && (
+            <div className="bg-zinc-900/40 border border-zinc-800/50 rounded-[2rem] p-6 space-y-3">
+              <h3 className="font-bold flex items-center gap-2 text-zinc-400 mb-2">
+                <Info className="w-4 h-4" /> Gerenciamento
+              </h3>
               {!editing && (
-                <button 
-                  onClick={() => setEditing(true)}
-                  className="w-full flex items-center gap-3 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 rounded-xl text-zinc-300 hover:text-white transition-all font-medium"
-                >
-                  <Edit3 className="w-5 h-5 text-indigo-400" />
-                  Edit Details
+                <button onClick={() => setEditing(true)} className="w-full flex items-center gap-3 px-4 py-3 bg-zinc-800/50 hover:bg-zinc-700/50 border border-zinc-800 rounded-2xl text-zinc-300 font-bold transition-all">
+                  <Edit3 className="w-5 h-5 text-indigo-400" /> Editar Detalhes
                 </button>
               )}
-              <button 
-                onClick={handleDelete}
-                className="w-full flex items-center gap-3 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 rounded-xl text-red-400 transition-all font-medium"
-              >
-                <Trash2 className="w-5 h-5" />
-                Delete Video
+              <button onClick={() => { if(window.confirm('Excluir vídeo permanentemente?')) onDelete(); }} className="w-full flex items-center gap-3 px-4 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 rounded-2xl text-red-400 font-bold transition-all">
+                <Trash2 className="w-5 h-5" /> Excluir Vídeo
               </button>
             </div>
-          </div>
-
-          <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-3xl p-6">
-            <h3 className="font-bold text-indigo-400 mb-2">Video Info</h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Storage Path</span>
-                <span className="text-zinc-300 font-mono truncate ml-4 text-[10px]">{video.file_path.split('/')[1]}</span>
+          )}
+          
+          <div className="bg-indigo-600/5 border border-indigo-500/10 rounded-[2rem] p-6">
+            <h3 className="font-bold text-indigo-400 mb-4 flex items-center gap-2">Estatísticas</h3>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-zinc-500">Popularidade</span>
+                <span className="text-white font-bold">{video.likes_count} Curtidas</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-zinc-500">Privacy</span>
-                <span className="text-zinc-300 flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                  Private
-                </span>
+              <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
+                <div className="h-full bg-indigo-500" style={{ width: `${Math.min((Number(video.likes_count) / 100) * 100, 100)}%` }} />
               </div>
             </div>
           </div>
