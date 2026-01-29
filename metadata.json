@@ -1,0 +1,5 @@
+{
+  "name": "Supatube Video Manager",
+  "description": "A high-performance video storage and management platform built with React, Tailwind, and Supabase backend.",
+  "requestFramePermissions": []
+}
